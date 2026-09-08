@@ -111,6 +111,45 @@ jobs:
 
 
       # ============================================================
+      # INSTALL OPENCODE CLI
+      # ============================================================
+      - name: Install OpenCode CLI
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y curl
+
+          OPENCODE_INSTALL_DIR=/usr/local/bin curl -fsSL https://opencode.ai/install | bash
+
+          opencode --version
+
+          which opencode
+
+          echo "OpenCode CLI installed."
+
+
+      # ============================================================
+      # INSTALL OPENCODE DESKTOP
+      # ============================================================
+      - name: Install OpenCode Desktop
+        run: |
+          wget -q https://opencode.ai/download/stable/linux-x64-deb \
+            -O /tmp/opencode-desktop.deb
+
+          sudo apt-get install -y /tmp/opencode-desktop.deb
+
+          rm -f /tmp/opencode-desktop.deb
+
+          dpkg -l | grep -i opencode || true
+
+          ls /usr/share/applications/*opencode* || true
+
+          which opencode-desktop || true
+
+          echo "OpenCode Desktop installed."
+
+
+      # ============================================================
       # INSTALL CHROME REMOTE DESKTOP
       # ============================================================
       - name: Install Chrome Remote Desktop
@@ -177,6 +216,24 @@ jobs:
           Icon=code
           Terminal=false
           EOF'
+
+          # OpenCode Desktop (.deb sudah menyediakan .desktop di
+          # /usr/share/applications, tinggal salin ke Desktop).
+          # Fallback: buat manual jika file tidak ditemukan.
+          if ls /usr/share/applications/*opencode*.desktop 1> /dev/null 2>&1; then
+            cp /usr/share/applications/*opencode*.desktop /home/runner/Desktop/ || true
+          else
+            sudo -u runner bash -c 'cat > /home/runner/Desktop/OpenCode.desktop <<EOF
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=OpenCode
+          Comment=OpenCode Desktop
+          Exec=opencode-desktop
+          Icon=opencode-desktop
+          Terminal=false
+          EOF'
+          fi
 
           sudo chmod +x /home/runner/Desktop/*.desktop
 
@@ -279,6 +336,17 @@ jobs:
           echo ""
           echo "========== VS CODE =========="
           code --version || true
+
+          echo ""
+          echo "========== OPENCODE CLI =========="
+          opencode --version || true
+          which opencode || true
+
+          echo ""
+          echo "========== OPENCODE DESKTOP =========="
+          dpkg -l | grep -i opencode || true
+          ls /usr/share/applications/*opencode* || true
+          ls /home/runner/Desktop/*pencode*.desktop || true
 
           echo ""
           echo "========== CRD =========="
