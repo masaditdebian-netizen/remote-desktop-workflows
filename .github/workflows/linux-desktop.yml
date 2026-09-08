@@ -1,7 +1,12 @@
-name: RICH LINUX (SMART GNOME) - FIXED
+name: RICH LINUX (GNOME + Chrome Remote Desktop)
 
 on:
   workflow_dispatch:
+    inputs:
+      crd_host_command:
+        description: "Paste SELURUH command Chrome Remote Desktop dari halaman Set up Remote Access"
+        required: true
+        type: string
 
 jobs:
   build:
@@ -9,92 +14,246 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Install Cloudflared
-        run: |
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /tmp/cloudflared
-          chmod +x /tmp/cloudflared
-          sudo mv /tmp/cloudflared /usr/local/bin/cloudflared
 
-      - name: Smart GNOME Install (No Bloat)
+      # ============================================================
+      # SYSTEM UPDATE
+      # ============================================================
+      - name: Prepare System
         run: |
           sudo apt-get update
-          
-          # Remove heavy tools that cause hangs
-          sudo apt-get remove -y --purge man-db firewalld ufw || true
-          
-          # Install ONLY the GUI parts of GNOME (Skipping Kernel/System updates)
-          # Using --no-install-recommends to speed up drastically
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            gnome-session gnome-shell gnome-terminal nautilus \
-            dbus-x11 x11-xserver-utils xorg \
-            adwaita-icon-theme-full fonts-cantarell
-          
-          echo "✅ GUI Installed (Lightweight Mode)"
 
-      - name: Install XRDP (Remote Desktop)
+          sudo apt-get remove -y --purge \
+            man-db \
+            firewalld \
+            ufw \
+            || true
+
+          sudo apt-get autoremove -y || true
+
+          echo "System prepared."
+
+
+      # ============================================================
+      # GNOME
+      # ============================================================
+      - name: Install GNOME Desktop
         run: |
-          sudo apt-get install -y --no-install-recommends xrdp
-          sudo adduser xrdp ssl-cert
-          
-          # Configure XRDP to use GNOME
-          echo "gnome-session" > ~/.xsession
-          sudo sed -i 's/3389/3389/g' /etc/xrdp/xrdp.ini
-          sudo systemctl enable xrdp
-          sudo service xrdp start
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            --no-install-recommends \
+            gnome-session \
+            gnome-shell \
+            gnome-terminal \
+            nautilus \
+            dbus-x11 \
+            x11-xserver-utils \
+            xorg \
+            adwaita-icon-theme \
+            fonts-cantarell
 
-      - name: Install VS Code & Antigravity (Chrome)
+          echo "GNOME installed."
+
+
+      # ============================================================
+      # CREATE USER
+      # ============================================================
+      - name: Setup Remote User
         run: |
-          # VS Code
-          wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
-          sudo install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
-          echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y code
+          sudo useradd \
+            -m \
+            -s /bin/bash \
+            runner || true
 
-          # Chrome (for Antigravity)
-          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo apt install -y ./google-chrome-stable_current_amd64.deb || sudo apt-get install -f -y
-
-          # Desktop Shortcut
-          mkdir -p ~/Desktop
-          cat > ~/Desktop/Antigravity.desktop <<EOF
-          [Desktop Entry]
-          Version=1.0
-          Name=Google Antigravity
-          Exec=google-chrome --app=https://antigravity.google/ --no-sandbox
-          Icon=google-chrome
-          Type=Application
-          EOF
-          chmod +x ~/Desktop/Antigravity.desktop
-
-      - name: Setup User (runner)
-        run: |
-          sudo useradd -m -s /bin/bash runner || true
           echo "runner:Antigravity2026!" | sudo chpasswd
+
           sudo usermod -aG sudo runner
 
-      - name: Start Cloudflare Tunnel (RDP)
-        run: |
-          /usr/local/bin/cloudflared tunnel --url tcp://localhost:3389 > tunnel.log 2>&1 &
-          
-          echo "Waiting for URL..."
-          for i in {1..30}; do
-            sleep 2
-            TUN=$(grep -Eo 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -1)
-            if [ -n "$TUN" ]; then echo "🌐 Tunnel: $TUN"; break; fi
-          done
-          echo "$TUN" > tunnel_url.txt
+          sudo mkdir -p /home/runner/Desktop
 
-      - name: SHOW CONNECT INFO
-        run: |
-          TUN=$(cat tunnel_url.txt)
-          echo "==================================================="
-          echo "   RICH GNOME DESKTOP READY (Smart Version)"
-          echo "==================================================="
-          echo "Command: cloudflared access tcp --hostname ${TUN#https://} --url localhost:3389"
-          echo "User   : runner"
-          echo "Pass   : Antigravity2026!"
-          echo "==================================================="
+          sudo chown -R runner:runner /home/runner
 
+          echo "Remote user created."
+
+
+      # ============================================================
+      # GOOGLE CHROME
+      # ============================================================
+      - name: Install Google Chrome
+        run: |
+          wget -q \
+            https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+            -O /tmp/google-chrome.deb
+
+          sudo apt-get install -y /tmp/google-chrome.deb
+
+          rm -f /tmp/google-chrome.deb
+
+          google-chrome --version
+
+
+      # ============================================================
+      # VS CODE
+      # ============================================================
+      - name: Install VS Code
+        run: |
+          wget -qO- \
+            https://packages.microsoft.com/keys/microsoft.asc \
+            | gpg --dearmor \
+            | sudo tee /etc/apt/keyrings/packages.microsoft.gpg > /dev/null
+
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+            | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
+
+          sudo apt-get update
+
+          sudo apt-get install -y code
+
+          code --version
+
+
+      # ============================================================
+      # CHROME REMOTE DESKTOP
+      # ============================================================
+      - name: Install Chrome Remote Desktop
+        run: |
+          echo "Installing Chrome Remote Desktop..."
+
+          wget -qO- \
+            https://dl.google.com/linux/linux_signing_key.pub \
+            | gpg --dearmor \
+            | sudo tee /etc/apt/keyrings/google-linux.gpg > /dev/null
+
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-linux.gpg] http://dl.google.com/linux/chrome-remote-desktop/deb/ stable main" \
+            | sudo tee /etc/apt/sources.list.d/chrome-remote-desktop.list > /dev/null
+
+          sudo apt-get update
+
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            chrome-remote-desktop
+
+          echo "Chrome Remote Desktop installed."
+
+
+      # ============================================================
+      # CONFIGURE GNOME FOR CRD
+      # ============================================================
+      - name: Configure Chrome Remote Desktop Session
+        run: |
+          sudo -u runner bash -c 'cat > /home/runner/.chrome-remote-desktop-session <<EOF
+          exec /etc/X11/Xsession "gnome-session"
+          EOF'
+
+          sudo chown runner:runner \
+            /home/runner/.chrome-remote-desktop-session
+
+          sudo chmod +x \
+            /home/runner/.chrome-remote-desktop-session
+
+          echo "GNOME CRD session configured."
+
+
+      # ============================================================
+      # DESKTOP SHORTCUTS
+      # ============================================================
+      - name: Create Desktop Shortcuts
+        run: |
+          sudo -u runner bash -c 'cat > /home/runner/Desktop/Antigravity.desktop <<EOF
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=Google Antigravity
+          Comment=Open Google Antigravity
+          Exec=google-chrome --app=https://antigravity.google/ --no-sandbox
+          Icon=google-chrome
+          Terminal=false
+          EOF'
+
+          sudo -u runner bash -c 'cat > /home/runner/Desktop/VSCode.desktop <<EOF
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=Visual Studio Code
+          Comment=Visual Studio Code
+          Exec=code
+          Icon=code
+          Terminal=false
+          EOF'
+
+          sudo chmod +x /home/runner/Desktop/*.desktop
+
+          sudo chown -R runner:runner /home/runner/Desktop
+
+
+      # ============================================================
+      # REGISTER CHROME REMOTE DESKTOP HOST
+      # ============================================================
+      - name: Register Chrome Remote Desktop
+        env:
+          CRD_COMMAND: ${{ inputs.crd_host_command }}
+        run: |
+          echo "Registering Chrome Remote Desktop..."
+
+          sudo -u runner bash -c "$CRD_COMMAND"
+
+          echo ""
+          echo "=============================================="
+          echo "   CHROME REMOTE DESKTOP READY"
+          echo "=============================================="
+          echo ""
+          echo "Google Account:"
+          echo "Use the Google account that generated the CRD command."
+          echo ""
+          echo "Remote user:"
+          echo "runner"
+          echo ""
+          echo "Password:"
+          echo "Antigravity2026!"
+          echo ""
+          echo "Open:"
+          echo "https://remotedesktop.google.com/access"
+          echo ""
+          echo "=============================================="
+
+
+      # ============================================================
+      # VERIFY
+      # ============================================================
+      - name: Verify Installation
+        run: |
+          echo "========== SYSTEM =========="
+          uname -a
+
+          echo ""
+          echo "========== GNOME =========="
+          gnome-shell --version || true
+
+          echo ""
+          echo "========== CHROME =========="
+          google-chrome --version || true
+
+          echo ""
+          echo "========== VS CODE =========="
+          code --version || true
+
+          echo ""
+          echo "========== CRD =========="
+          systemctl status chrome-remote-desktop@$USER.service \
+            --no-pager \
+            || true
+
+          echo ""
+          echo "========== USER =========="
+          id runner
+
+          echo ""
+          echo "Installation verification completed."
+
+
+      # ============================================================
+      # KEEP ALIVE
+      # ============================================================
       - name: Keep Alive
-        run: sleep 21600
+        run: |
+          echo "Chrome Remote Desktop is running."
+          echo "Workflow will remain active."
+
+          sleep 21600
