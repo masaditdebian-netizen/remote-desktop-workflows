@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       crd_host_command:
-        description: "Paste SELURUH command Chrome Remote Desktop dari halaman Set up Remote Access"
+        description: "Paste SELURUH command Chrome Remote Desktop dari halaman Remote Access"
         required: true
         type: string
 
@@ -16,7 +16,7 @@ jobs:
     steps:
 
       # ============================================================
-      # SYSTEM UPDATE
+      # PREPARE SYSTEM
       # ============================================================
       - name: Prepare System
         run: |
@@ -34,7 +34,7 @@ jobs:
 
 
       # ============================================================
-      # GNOME
+      # INSTALL GNOME
       # ============================================================
       - name: Install GNOME Desktop
         run: |
@@ -54,7 +54,7 @@ jobs:
 
 
       # ============================================================
-      # CREATE USER
+      # CREATE REMOTE USER
       # ============================================================
       - name: Setup Remote User
         run: |
@@ -75,7 +75,7 @@ jobs:
 
 
       # ============================================================
-      # GOOGLE CHROME
+      # INSTALL GOOGLE CHROME
       # ============================================================
       - name: Install Google Chrome
         run: |
@@ -91,7 +91,7 @@ jobs:
 
 
       # ============================================================
-      # VS CODE
+      # INSTALL VS CODE
       # ============================================================
       - name: Install VS Code
         run: |
@@ -111,7 +111,7 @@ jobs:
 
 
       # ============================================================
-      # CHROME REMOTE DESKTOP
+      # INSTALL CHROME REMOTE DESKTOP
       # ============================================================
       - name: Install Chrome Remote Desktop
         run: |
@@ -134,9 +134,9 @@ jobs:
 
 
       # ============================================================
-      # CONFIGURE GNOME FOR CRD
+      # CONFIGURE GNOME SESSION
       # ============================================================
-      - name: Configure Chrome Remote Desktop Session
+      - name: Configure CRD GNOME Session
         run: |
           sudo -u runner bash -c 'cat > /home/runner/.chrome-remote-desktop-session <<EOF
           exec /etc/X11/Xsession "gnome-session"
@@ -148,11 +148,11 @@ jobs:
           sudo chmod +x \
             /home/runner/.chrome-remote-desktop-session
 
-          echo "GNOME CRD session configured."
+          echo "GNOME session configured for CRD."
 
 
       # ============================================================
-      # DESKTOP SHORTCUTS
+      # CREATE DESKTOP SHORTCUTS
       # ============================================================
       - name: Create Desktop Shortcuts
         run: |
@@ -184,7 +184,44 @@ jobs:
 
 
       # ============================================================
-      # REGISTER CHROME REMOTE DESKTOP HOST
+      # SET CRD PIN
+      #
+      # Default:
+      #   123456
+      #
+      # Custom:
+      #   Create GitHub Actions secret/variable:
+      #
+      #   CRD_PIN=your-pin
+      # ============================================================
+      - name: Configure CRD PIN
+        env:
+          CUSTOM_CRD_PIN: ${{ secrets.CRD_PIN }}
+        run: |
+          if [ -n "$CUSTOM_CRD_PIN" ]; then
+            CRD_PIN="$CUSTOM_CRD_PIN"
+            echo "Using custom CRD PIN from CRD_PIN."
+          else
+            CRD_PIN="123456"
+            echo "No CRD_PIN found."
+            echo "Using default PIN: 123456"
+          fi
+
+          # Validate PIN
+          if ! [[ "$CRD_PIN" =~ ^[0-9]{6,}$ ]]; then
+            echo "ERROR: CRD_PIN must contain at least 6 digits."
+            exit 1
+          fi
+
+          echo "::add-mask::$CRD_PIN"
+
+          echo "CRD_PIN=$CRD_PIN" >> "$GITHUB_ENV"
+
+          echo "CRD PIN configured."
+
+
+      # ============================================================
+      # REGISTER CHROME REMOTE DESKTOP
       # ============================================================
       - name: Register Chrome Remote Desktop
         env:
@@ -192,24 +229,33 @@ jobs:
         run: |
           echo "Registering Chrome Remote Desktop..."
 
-          sudo -u runner bash -c "$CRD_COMMAND"
+          if [ -z "$CRD_COMMAND" ]; then
+            echo "ERROR: CRD host command is empty."
+            exit 1
+          fi
+
+          # Jalankan command CRD sebagai user runner.
+          # PIN akan diberikan melalui environment CRD_PIN.
+          sudo -u runner \
+            env CRD_PIN="$CRD_PIN" \
+            bash -c "$CRD_COMMAND --pin=\"$CRD_PIN\""
 
           echo ""
           echo "=============================================="
-          echo "   CHROME REMOTE DESKTOP READY"
+          echo "      CHROME REMOTE DESKTOP READY"
           echo "=============================================="
           echo ""
-          echo "Google Account:"
-          echo "Use the Google account that generated the CRD command."
+          echo "Remote access:"
+          echo "https://remotedesktop.google.com/access"
           echo ""
-          echo "Remote user:"
+          echo "User:"
           echo "runner"
           echo ""
-          echo "Password:"
-          echo "Antigravity2026!"
+          echo "Default PIN:"
+          echo "123456"
           echo ""
-          echo "Open:"
-          echo "https://remotedesktop.google.com/access"
+          echo "Custom PIN:"
+          echo "Set GitHub Secret CRD_PIN"
           echo ""
           echo "=============================================="
 
@@ -227,7 +273,7 @@ jobs:
           gnome-shell --version || true
 
           echo ""
-          echo "========== CHROME =========="
+          echo "========== GOOGLE CHROME =========="
           google-chrome --version || true
 
           echo ""
@@ -236,7 +282,8 @@ jobs:
 
           echo ""
           echo "========== CRD =========="
-          systemctl status chrome-remote-desktop@$USER.service \
+          systemctl status \
+            chrome-remote-desktop@runner.service \
             --no-pager \
             || true
 
@@ -253,7 +300,8 @@ jobs:
       # ============================================================
       - name: Keep Alive
         run: |
-          echo "Chrome Remote Desktop is running."
-          echo "Workflow will remain active."
+          echo "=============================================="
+          echo " Chrome Remote Desktop is running."
+          echo "=============================================="
 
           sleep 21600
